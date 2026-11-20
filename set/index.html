@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<head>
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"/>
+<style>
+.card {
+  border: grey .4vmin solid;
+  border-radius: 4vmin;
+  width: 24vmin;
+  height: 16vmin;
+}
+.found {
+  border: grey .2vmin solid;
+  border-radius: 2vmin;
+  width: 12vmin;
+  height: 8vmin;
+}
+.selected {
+  background: yellow;
+}
+body {
+  font-size: xx-large;
+}
+input, button {
+  font-size: x-large;
+}
+#seed {
+  width: 20vmin;
+}
+#message {
+  display: inline-block;
+}
+</style>
+<script>
+let startTime = new Date();
+let attributes = ["color", "shape", "fill", "count"];
+let attMap = {
+        "color": ["red", "green", "purple"],
+        "shape": ["squiggle", "oval", "diamond"],
+        "fill": ["solid", "shaded", "open"],
+        "count": [1, 2, 3]
+}
+let dealt = [];
+let deck = [];
+let found = [];
+let selected = [];
+let message;
+let gameOver = false;
+
+function cyrb128(str) {
+    let h1 = 1779033703, h2 = 3144134277,
+        h3 = 1013904242, h4 = 2773480762;
+    for (let i = 0, k; i < str.length; i++) {
+        k = str.charCodeAt(i);
+        h1 = h2 ^ Math.imul(h1 ^ k, 597399067);
+        h2 = h3 ^ Math.imul(h2 ^ k, 2869860233);
+        h3 = h4 ^ Math.imul(h3 ^ k, 951274213);
+        h4 = h1 ^ Math.imul(h4 ^ k, 2716044179);
+    }
+    h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067);
+    h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
+    h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213);
+    h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
+    h1 ^= (h2 ^ h3 ^ h4), h2 ^= h1, h3 ^= h1, h4 ^= h1;
+    return [h1>>>0, h2>>>0, h3>>>0, h4>>>0];
+}
+function sfc32(a, b, c, d) {
+  return function() {
+    a |= 0; b |= 0; c |= 0; d |= 0;
+    let t = (a + b | 0) + d | 0;
+    d = d + 1 | 0;
+    a = b ^ b >>> 9;
+    b = c + (c << 3) | 0;
+    c = (c << 21 | c >>> 11);
+    c = c + t | 0;
+    return (t >>> 0) / 4294967296;
+  }
+}
+let rand;
+
+function compareCards(a, b) {
+        for (let att of attributes) {
+                if (a[att] != b[att]) {
+                        return a[att] < b[att] ? -1 : 1;
+                }
+        }
+        return 0;
+}
+
+function sortSet(set) {
+        return set.toSorted(compareCards);
+}
+
+function containsSet(match, sets) {
+        let sMatch = sortSet(match);
+        return sets.some(set => sortSet(set).every(
+                        (card, i) => attributes.every(att => card[att] == sMatch[i][att])
+                )
+        )
+}
+
+function setCard(card, id) {
+        return document.getElementById(id).appendChild(formatCard(card)).parentElement;
+}
+let wrong = ""
+function checkSet(a, b, c) {
+        let pass = [];
+        for (let att of attributes) {
+                if ((a[att] == b[att] && a[att] == c[att])
+                        || (a[att] != b[att] && a[att] != c[att] && b[att] != c[att])) {
+                        pass.push(att)
+                } else {
+                        wrong = att
+                }
+        }
+        return pass.length == 4;
+}
+
+function trySet(a, b, c) {
+        if (checkSet(a, b, c)) {
+                let sSet = sortSet([a, b, c])
+                if (containsSet(sSet, found)) {
+                        message.textContent = "you already found that one"
+                        return false
+                }
+                let duration = new Date(new Date() - startTime).toISOString().slice(14,-1);
+                if (found.length == 5) {
+                        message.textContent = "good game! " + duration;
+                        gameOver = true;
+                } else {
+                        message.textContent = "good job!";
+                }
+                setCard(a, "f" + found.length + "0");
+                setCard(b, "f" + found.length + "1");
+                setCard(c, "f" + found.length + "2");
+                document.getElementById("t" + found.length).textContent = duration;
+                found.push(sSet);
+                return true;
+        } else {
+                message.textContent = "nope, " + wrong + " is wrong";
+                return false;
+        }
+}
+
+function formatCard(card) {
+        let shapePositions = [[75], [50, 100], [30, 75, 120]];
+        let svg = document.createElementNS('http://www.w3.org/2000/svg', "svg");
+        svg.setAttribute("viewBox", "0 0 150 100");
+        for (let xpos of shapePositions[card.count - 1]) {
+                let shape;
+                if (card.shape == "oval") {
+                        shape = document.createElementNS('http://www.w3.org/2000/svg', "ellipse");
+                        shape.setAttribute("cx", xpos);
+                        shape.setAttribute("cy", 50);
+                        shape.setAttribute("rx", 16);
+                        shape.setAttribute("ry", 30);
+                } else if (card.shape == "diamond") {
+                        shape = document.createElementNS('http://www.w3.org/2000/svg', "polygon");
+                        let points = [[xpos, 20], [xpos + 16, 50], [xpos, 80], [xpos - 16, 50]];
+                        shape.setAttribute("points", points.map(p => p.join(",")).join(" "))
+
+                } else {
+                        shape = document.createElementNS('http://www.w3.org/2000/svg', "path");
+                        data = "M" + (xpos - 12) + ",55c1,-2.6,2,-5.1,3,-7.7c0.8,-2.2,1.3,-4.5,1.4,-6.9c0.1,-3.3,-0.8,-6.3,-2.6,-9c-0.7,-1.1,-1.5,-2.2,-2.1,-3.3c-0.8,-1.4,-1.4,-2.9,-1.4,-4.5c-0.1,-2.3,0.9,-3.9,2.9,-5c1.6,-0.8,3.4,-1.1,5.2,-1.3c10.7,-0.8,18.9,6.7,21.4,15.1c1.2,3.9,1.3,7.9,0.4,11.9c-0.7,2.6,-1.6,5.1,-2.4,7.6c-0.7,2.2,-1.4,4.4,-1.4,6.8c0,2.2,0.4,4.4,1.4,6.4c0.8,1.4,1.6,2.9,2.3,4.4c0.8,1.7,1.2,3.4,1,5.3c-0.3,1.6,-1,2.8,-2.3,3.8c-1.7,1.3,-3.6,2,-5.7,2.3c-4.3,0.7,-8.6,0.3,-12.6,-1.6c-4.6,-2.3,-7.8,-5.7,-9.3,-10.7c-1,-3,-1,-6,-0.4,-9c0.3,-1.6,0.8,-3.1,1.2,-4.6z"
+                        shape.setAttribute("d", data);
+                }
+                shape.setAttribute("stroke", card.color);
+                shape.setAttribute("stroke-width", 3);
+                shape.setAttribute("stroke-linejoin", "round");
+                if (card.fill == "open") {
+                        shape.setAttribute("fill", "white");
+                }
+                else {
+                        shape.setAttribute("fill", card.color);
+                }
+                if (card.fill == "shaded") {
+                        shape.setAttribute("fill-opacity", "0.2");
+                }
+                svg.appendChild(shape);
+        }
+        return svg;
+}
+
+let lastSelect = new Date();
+let lastEvent = "";
+function select(pos, display, event) {
+        let now = new Date();
+        if (event == "click" && lastEvent == "touch" && now - lastSelect < 500) {
+                return;
+        }
+        lastSelect = now;
+        lastEvent = event;
+        if (gameOver) {
+                return;
+        }
+        message.textContent = "";
+        let index = selected.findIndex(e => e[0] == pos[0] && e[1] == pos[1]);
+        if (index > -1) {
+                selected.splice(index, 1);
+                display.classList.remove("selected");
+        }
+        else if (selected.length < 3) {
+                selected.push(pos);
+                //selected.sort();
+                display.classList.add("selected");
+                if (selected.length == 3) {
+                        let result = trySet(...selected.map(p => dealt[p[0]][p[1]]));
+                        if (result) {
+                                for (let card of dealt.flat()) {
+                                        card.display.classList.remove("selected");
+                                }
+                                selected = [];
+                        }
+                }
+        }
+}
+
+function shuffle() {
+        deck = [];
+        for (let color of ["red", "green", "purple"]) {
+                for (let shape of ["squiggle", "diamond", "oval"]) {
+                        for (let fill of ["solid", "shaded", "open"]) {
+                                for (let count of [1, 2, 3]) {
+                                        deck.push({color, shape, fill, count, value: rand()});
+                                }
+                        }
+                }
+        }
+        deck.sort((a, b) => a.value - b.value );
+}
+
+function basicDeal() {
+        dealt = [];
+        for (let i = 0; i < 4; i++) {
+                dealt.push([]);
+                for (let j = 0; j < 3; j++) {
+                        let card = deck[i*3 + j];
+                        card.display = setCard(card, i + "" + j);
+                        card.display.onclick = () => select([i, j], card.display);
+                        dealt[i][j] = card;
+                }
+        }
+}
+
+function missing(a, b) {
+        let c = {};
+        for (att of attributes) {
+                if (a[att] == b[att]) {
+                        c[att] = a[att]
+                } else {
+                        c[att] = attMap[att].find(v => v != a[att] && v != b[att])
+                }
+        }
+        return c;
+}
+
+let seen;
+function sixDeal() {
+        let cards = deck.slice(-6);
+        seen = [];
+        while (cards.length < 12) {
+                let a = Math.floor(rand() * cards.length);
+                let b = Math.floor(rand() * cards.length);
+                while (a == b) {
+                        b = Math.floor(rand() * cards.length);
+                }
+                let next = missing(cards[a], cards[b]);
+                if (containsSet([cards[a], cards[b], next], seen)) {
+                        continue;
+                }
+                seen.push(sortSet([cards[a], cards[b], next]));
+                while (cards.some(c => compareCards(next, c) == 0)) {
+                        next = deck[Math.floor(rand() * deck.length)];
+                }
+                cards.push(next);
+        }
+        for (let i = 0; i < 12; i++) {
+                let a = Math.floor(rand() * 12);
+                let b = Math.floor(rand() * 12);
+                while (a == b) {
+                        b = Math.floor(rand() * 12);
+                }
+                [cards[a], cards[b]] = [cards[b], cards[a]]
+        }
+        dealt = []
+        for (let i = 0; i < 4; i++) {
+                dealt.push([]);
+                for (let j = 0; j < 3; j++) {
+                        let card = cards[i*3 + j];
+                        card.display = setCard(card, i + "" + j);
+                        card.display.onclick = () => select([i, j], card.display, "click");
+                        card.display.addEventListener("touchstart", () => select([i, j], card.display, "touch"));
+                        dealt[i][j] = card;
+                }
+        }
+}
+
+function deal() {
+        sixDeal();
+}
+
+function setSeed() {
+        let d = new Date()
+        let seed = "" + d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+        if (window.location.search.length > 1) {
+                seed = window.location.search.slice(1);
+        }
+        document.getElementById("seed").value = seed;
+        var ss = cyrb128(seed);
+        rand = sfc32(ss[0], ss[1], ss[2], ss[3]);
+}
+function newSeed() {
+        window.location.search = document.getElementById("seed").value;
+}
+function today() {
+        window.location.search = "";
+}
+function randomSeed() {
+        window.location.search = Math.floor(Math.random() * 1000000000);
+}
+
+function init() {
+        message = document.getElementById("message");
+        setSeed();
+        shuffle();
+        deal();
+}
+</script>
+</head>
+<body onload="init();">
+<span>Seed</span>
+<input type="text" id="seed"></input>
+<button onclick="newSeed()">Go</button>
+<button onclick="randomSeed()">Random</button>
+<button onclick="today()">Today</button>
+<br/>
+<span id="message"></span>
+<table>
+<tr>
+<td><div id="00" class="card"></div></td>
+<td><div id="01" class="card"></div></td>
+<td><div id="02" class="card"></div></td>
+</tr>
+<tr>
+<td><div id="10" class="card"></div></td>
+<td><div id="11" class="card"></div></td>
+<td><div id="12" class="card"></div></td>
+</tr>
+<tr>
+<td><div id="20" class="card"></div></td>
+<td><div id="21" class="card"></div></td>
+<td><div id="22" class="card"></div></td>
+</tr>
+<tr>
+<td><div id="30" class="card"></div></td>
+<td><div id="31" class="card"></div></td>
+<td><div id="32" class="card"></div></td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td>
+<td><div id="f00" class="found"></div></td>
+<td><div id="f01" class="found"></div></td>
+<td><div id="f02" class="found"></div></td>
+<td><span id="t0"></span>
+</td>
+</tr>
+<tr>
+<td>
+<td><div id="f10" class="found"></div></td>
+<td><div id="f11" class="found"></div></td>
+<td><div id="f12" class="found"></div></td>
+<td><span id="t1"></span>
+</td>
+</tr>
+<tr>
+<td>
+<td><div id="f20" class="found"></div></td>
+<td><div id="f21" class="found"></div></td>
+<td><div id="f22" class="found"></div></td>
+<td><span id="t2"></span>
+</td>
+</tr>
+<tr>
+<td>
+<td><div id="f30" class="found"></div></td>
+<td><div id="f31" class="found"></div></td>
+<td><div id="f32" class="found"></div></td>
+<td><span id="t3"></span>
+</td>
+</tr>
+<tr>
+<td>
+<td><div id="f40" class="found"></div></td>
+<td><div id="f41" class="found"></div></td>
+<td><div id="f42" class="found"></div></td>
+<td><span id="t4"></span>
+</td>
+</tr>
+<tr>
+<td>
+<td><div id="f50" class="found"></div></td>
+<td><div id="f51" class="found"></div></td>
+<td><div id="f52" class="found"></div></td>
+<td><span id="t5"></span>
+</td>
+</tr>
+</table>
+
+</body>
+</html>
